@@ -2,21 +2,21 @@ import serial
 from serial.tools import list_ports
 from serial.serialutil import SerialException
 import time
-import sys
+from typing import Optional, Union  # added to accommodate python 3.6
 import re
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class CoboltLaser:
+class CoboltLaser:  # 594 nm is DPL (not MLD)
     """Creates a laser object using either COM-port or serial number to connect to laser. \n Will automatically return proper subclass, if applicable"""
 
     def __init__(
-        self,
-        port: str | None = None,
-        serialnumber: str | None = None,
-        baudrate: int = 115200,
+            self,
+            port: Optional[str] = None,
+            serialnumber: Optional[str] = None,
+            baudrate: Union[str, int, None] = 115200,
     ):
         self.msg_timer = time.perf_counter()
         self.serialnumber = serialnumber
@@ -45,7 +45,7 @@ class CoboltLaser:
                 self.address = serial.Serial(self.port, self.baudrate, timeout=1)
             except Exception as err:
                 self.address = None
-                raise SerialException(f"{self.port} not accesible.") from err
+                raise SerialException(f"{self.port} not accessible.") from err
 
         elif self.serialnumber != None:
             ports = list_ports.comports()
@@ -175,7 +175,7 @@ class CoboltLaser:
         """Enter constant current mode, current in mA"""
         if current != None:
             if not "-08-" in self.modelnumber or not "-06-" in self.modelnumber:
-                self.send_cmd(f"slc {current/1000}")
+                self.send_cmd(f"slc {current / 1000}")
             else:
                 self.send_cmd(f"slc {current}")
             logger.info(f"Entering constant current mode with I = {current} mA")
@@ -183,7 +183,7 @@ class CoboltLaser:
             logger.info("Entering constant current mode")
         return self.send_cmd(f"ci")
 
-    def set_current(self, current:float):
+    def set_current(self, current: float):
         """Set laser current in mA"""
         logger.info(f"Setting I = {current} mA")
         if not "-08-" in self.modelnumber or not "-06-" in self.modelnumber:
@@ -198,19 +198,19 @@ class CoboltLaser:
         """Get laser current setpoint in mA"""
         return float(self.send_cmd(f"glc?"))
 
-    def constant_power(self, power:float|None=None):
+    def constant_power(self, power: Union[str, int, float] = None):
         """Enter constant power mode, power in mW"""
         if power != None:
-            self.send_cmd(f"p {float(power)/1000}")
+            self.send_cmd(f"p {float(power) / 1000}")
             logger.info(f"Entering constant power mode with P = {power} mW")
         else:
             logger.info("Entering constant power mode")
         return self.send_cmd(f"cp")
 
-    def set_power(self, power:float):
+    def set_power(self, power: float):
         """Set laser power in mW"""
         logger.info(f"Setting P = {power} mW")
-        return self.send_cmd(f"p {float(power)/1000}")
+        return self.send_cmd(f"p {float(power) / 1000}")
 
     def get_power(self):
         """Get laser power in mW"""
@@ -224,9 +224,8 @@ class CoboltLaser:
         """Get laser operational hours"""
         return self.send_cmd(f"hrs?")
 
-
-    def send_cmd(self, message, timeout: int | None = None):
-        """Sends a message to the laset and awaits response until timeout (in s).
+    def send_cmd(self, message, timeout: Union[int, None] = None):
+        """Sends a message to the laser and waits for a response until timeout (in s).
 
         Returns:
             The response received from the laser as string
@@ -235,11 +234,10 @@ class CoboltLaser:
             RuntimeError: sending the message failed
         """
 
-
         if timeout:
             self.address.timeout = timeout
         message += "\r"
-        while time.perf_counter()-self.msg_timer<0.100: #to prevent issues with sending commands too rapidly 
+        while time.perf_counter() - self.msg_timer < 0.100:  # to prevent issues with sending commands too rapidly
             continue
         try:
             utf8_msg = message.encode()
@@ -252,13 +250,13 @@ class CoboltLaser:
             received_string = self.address.readline().decode().rstrip()
             self.msg_timer = time.perf_counter()
             if len(received_string) < 1:  # if empty response raise syntax error
-                logger.error(f"No responce recieved for {message}")
+                logger.error(f"No response received for {message}")
                 raise SerialException
         except serial.SerialException:
 
             raise RuntimeError(f"Syntax Error: No response on {message}")
         else:
-            #print(message.replace("\r",""),received_string)
+            # print(message.replace("\r",""), received_string)
             logger.debug(f"received from laser [{self}] message [{received_string}]")
         return received_string
 
@@ -272,17 +270,16 @@ class CoboltLaser:
 
 class Cobolt06(CoboltLaser):
     def __init__(
-        self,
-        port: str | None = None,
-        serialnumber: str | None = None,
-        baudrate: int = 115200,
+            self,
+            port: Optional[str] = None,
+            serialnumber: Optional[str] = None,
+            baudrate: int = 115200,
     ):
         super().__init__(port, serialnumber, baudrate)
 
-
-    def power_modulation_mode(self, digital_enabled:bool=True,analog_enabled:bool=False ):
-        '''06-MLD: Use power modulation for digital modulation up to 10 MHz and/or analog modulation up to 10 Hz 
-        06-DPL: Use power modulation for digital modulation up to 1 kHz and/or analog modulation up to 1kHz '''
+    def power_modulation_mode(self, digital_enabled: bool = True, analog_enabled: bool = False):
+        """06-MLD: Use power modulation for digital modulation up to 10 MHz and/or analog modulation up to 10 Hz
+        06-DPL: Use power modulation for digital modulation up to 1 kHz and/or analog modulation up to 1 kHz"""
         self.send_cmd("LAS:RUNM PowerModulation")
         if analog_enabled:
             self.send_cmd("las:pm:ana:ena 1")
@@ -293,10 +290,9 @@ class Cobolt06(CoboltLaser):
         else:
             self.send_cmd("las:pm:dig:ena 0")
 
-
-    def current_modulation_mode(self, digital_enabled:bool=True,analog_enabled:bool=False ):
-        '''06-MLD: Use power modulation for digital modulation above 10 MHz and/or analog modulation above 10 Hz 
-        06-DPL: Use power modulation for digital modulation above 1 kHz and/or analog modulation above 1kHz '''
+    def current_modulation_mode(self, digital_enabled: bool = True, analog_enabled: bool = False):
+        """06-MLD: Use power modulation for digital modulation above 10 MHz and/or analog modulation above 10 Hz
+        06-DPL: Use power modulation for digital modulation above 1 kHz and/or analog modulation above 1kHz """
 
         self.send_cmd("LAS:RUNM CurrentModulation")
         if analog_enabled:
@@ -308,15 +304,15 @@ class Cobolt06(CoboltLaser):
         else:
             self.send_cmd("las:cm:dig:ena 0")
 
-    def digital_modulation(self, enable, power_mod:bool=True, current_mod:bool=False):
+    def digital_modulation(self, enable, power_mod: bool = True, current_mod: bool = False):
         """Enable digital modulation mode by enable=1, turn off by enable=0
         """
         if power_mod:
             self.send_cmd(f"las:pm:dig:ena {enable}")
         if current_mod:
-            self.send_cmd(f"las:cm:dig:ena {enable}")      
-    
-    def analog_modulation(self, enable, power_mod:bool=True, current_mod:bool=False):
+            self.send_cmd(f"las:cm:dig:ena {enable}")
+
+    def analog_modulation(self, enable, power_mod: bool = True, current_mod: bool = False):
         """Enable analog modulation mode by enable=1, turn off by enable=0
         """
         if power_mod:
@@ -324,7 +320,7 @@ class Cobolt06(CoboltLaser):
         if current_mod:
             self.send_cmd(f"las:cm:ana:ena {enable}")
 
-    def set_modulation_power(self, power:float):
+    def set_modulation_power(self, power: float):
         """Set the modulation power in mW"""
         logger.info(f"Setting modulation power = {power} mW")
         return self.send_cmd(f"LASer:PowerModulation:POWer:SETPoint {power}")
@@ -333,7 +329,7 @@ class Cobolt06(CoboltLaser):
         """Get the modulation power setpoint in mW"""
         return float(self.send_cmd("LASer:PowerModulation:POWer:SETPoint?"))
 
-    def set_modulation_current(self, current:float):
+    def set_modulation_current(self, current: float):
         """Set the modulation current in mA"""
         logger.info(f"Setting modulation current = {current} mA")
         return self.send_cmd(f"LASer:CurrentModulation:CURRent:HIGH:SETPoint {current}")
@@ -356,7 +352,7 @@ class Cobolt06(CoboltLaser):
         """Exit command modulation and resume power modulation with external input"""
         self.send_cmd("laser:pm:dig:modulator external")
 
-    def cmd_modulation(self, cmd:str):
+    def cmd_modulation(self, cmd: str):
         """send command for command modulation
         !e - light on
         !d - light off
@@ -375,19 +371,19 @@ class Cobolt06(CoboltLaser):
         return self.send_cmd("LASer:RUNMode?")
 
     def get_state(self):
-        """Get autostart state""" 
+        """Get autostart state"""
         return self.send_cmd("state?")
-    
+
     def get_modulation_state(self):
         """Get the laser modulation settings as [digital, analog] for the active run mode"""
-        rm=self.send_cmd("laser:runmode?")
+        rm = self.send_cmd("laser:runmode?")
 
-        if rm in ["CurrentModulation","PowerModulation"]:
+        if rm in ["CurrentModulation", "PowerModulation"]:
             dm = self.send_cmd(f"las:{rm}:dig:ena?")
             am = self.send_cmd(f"las:{rm}:ana:ena?")
-            return [dm,am]
-        
-    def set_analog_impedance(self, arg:str):
+            return [dm, am]
+
+    def set_analog_impedance(self, arg: str):
         """Set the impedance of the analog modulation.
 
         Args:
@@ -399,8 +395,8 @@ class Cobolt06(CoboltLaser):
         """Get the impedance of the analog modulation \n
         return: 'high' for HighZ and 'low' for 50 Ohm"""
         return self.send_cmd("SYSTem:INPut:ANAlog:IMPedance?")
-    
-    def set_analog_voltage_range(self,arg):
+
+    def set_analog_voltage_range(self, arg):
         """Set maximum voltage for the anaglog input signal
         
         Args:
@@ -411,7 +407,7 @@ class Cobolt06(CoboltLaser):
         """Set maximum voltage for the anaglog input signal
         return: 1 for 1 V, 5 for 5 V"""
         return self.send_cmd(f"SYSTem:INPut:ANAlog:VOLTage:RANGe:MAX?")
-        
+
     def pause_emission(self):
         """Pause laser emission without turning off the laser"""
         self.send_cmd("las:paus 1")
@@ -421,8 +417,7 @@ class Cobolt06(CoboltLaser):
         self.send_cmd("las:paus 0")
 
 
-
-class Cobolt06MLD(CoboltLaser):
+class Cobolt06MLD(CoboltLaser):  # 638 nm is MLD
     """For lasers of type 06-MLD"""
 
     def __init__(self, port=None, serialnumber=None):
@@ -452,7 +447,7 @@ class Cobolt06MLD(CoboltLaser):
         state = self.send_cmd("gom?")
         return states.get(state, state)
 
-    def modulation_mode(self, power:float=None):
+    def modulation_mode(self, power: float = None):
         """Enter modulation mode.
 
         Args:
@@ -463,15 +458,15 @@ class Cobolt06MLD(CoboltLaser):
             self.send_cmd(f"slmp {power}")
         return self.send_cmd("em")
 
-    def digital_modulation(self, enable:int):
+    def digital_modulation(self, enable: int):
         """Enable digital modulation mode by enable=1, turn off by enable=0"""
         return self.send_cmd(f"sdmes {enable}")
 
-    def analog_modulation(self, enable:int):
+    def analog_modulation(self, enable: int):
         """Enable analog modulation mode by enable=1, turn off by enable=0"""
         return self.send_cmd(f"sames {enable}")
 
-    def on_off_modulation(self, enable:int):
+    def on_off_modulation(self, enable: int):
         """Enable On/Off modulation mode by enable=1, turn off by enable=0"""
         if enable == 1:
             return self.send_cmd("eoom")
@@ -484,7 +479,7 @@ class Cobolt06MLD(CoboltLaser):
         am = self.send_cmd("games?")
         return [am, dm]
 
-    def set_modulation_power(self, power:float):
+    def set_modulation_power(self, power: float):
         """Set the modulation power in mW"""
         logger.info(f"Setting modulation power = {power} mW")
         return self.send_cmd(f"slmp {power}")
@@ -493,7 +488,7 @@ class Cobolt06MLD(CoboltLaser):
         """Get the modulation power setpoint in mW"""
         return float(self.send_cmd("glmp?"))
 
-    def set_analog_impedance(self, arg:int):
+    def set_analog_impedance(self, arg: int):
         """Set the impedance of the analog modulation.
 
         Args:
@@ -538,17 +533,17 @@ class Cobolt06DPL(CoboltLaser):
         state = self.send_cmd("gom?")
         return states.get(state, state)
 
-    def modulation_mode(self, highI:float=None):
+    def modulation_mode(self, highI: float = None):
         """Enter Modulation mode, with possibiity to set the modulation high current level in mA (**kwarg)"""
         if highI != None:
             self.send_cmd(f"smc {highI}")
         return self.send_cmd("em")
 
-    def digital_modulation(self, enable:int):
+    def digital_modulation(self, enable: int):
         """Enable digital modulation mode by enable=1, turn off by enable=0"""
         return self.send_cmd(f"sdmes {enable}")
 
-    def analog_modulation(self, enable:int):
+    def analog_modulation(self, enable: int):
         """Enable analog modulation mode by enable=1, turn off by enable=0"""
         return self.send_cmd(f"sames {enable}")
 
@@ -558,16 +553,16 @@ class Cobolt06DPL(CoboltLaser):
         am = self.send_cmd("games?")
         return [am, dm]
 
-    def set_modulation_current_high(self, highI:float):
+    def set_modulation_current_high(self, highI: float):
         """Set the modulation high current in mA"""
         return self.send_cmd(f"smc {highI}")
 
-    def set_modulation_current_low(self, lowI:float):
+    def set_modulation_current_low(self, lowI: float):
         """Set the modulation low current in mA"""
         return self.send_cmd(f"slth {lowI}")
 
     def get_modulation_current(self):
-        """Return the modulation currrent setpoints in mA as [highCurrent,lowCurrent]"""
+        """Return the modulation current setpoints in mA as [highCurrent,lowCurrent]"""
         highI = float(self.send_cmd("gmc?"))
         lowI = float(self.send_cmd("glth?"))
         return [highI, lowI]
@@ -576,7 +571,7 @@ class Cobolt06DPL(CoboltLaser):
         """Read the temperature of the modulation TEC in °C"""
         return float(self.send_cmd("rtec4t?"))
 
-    def set_modulation_tec(self, temperature:float):
+    def set_modulation_tec(self, temperature: float):
         """Set the temperature of the modulation TEC in °C"""
         return self.send_cmd(f"stec4t {temperature}")
 
@@ -592,7 +587,7 @@ def list_lasers():
     for port in ports:
         try:
             laser = CoboltLaser(port=port.device)
-            if laser.serialnumber == None or laser.serialnumber.startswith("Syntax"):
+            if laser.serialnumber is None or laser.serialnumber.startswith("Syntax"):
                 del laser
             else:
                 lasers.append(laser)
